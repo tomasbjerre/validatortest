@@ -1,25 +1,29 @@
 package se.bjurr.validator;
 
-import static com.google.common.base.Throwables.propagate;
+import static com.google.common.base.Charsets.UTF_8;
+import static com.google.common.base.Objects.firstNonNull;
+import static com.google.common.cache.CacheBuilder.newBuilder;
 import static com.google.common.collect.Lists.newArrayList;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
-import nu.validator.htmlparser.common.XmlViolationPolicy;
-import nu.validator.htmlparser.sax.HtmlParser;
-import nu.validator.htmlparser.sax.HtmlSerializer;
-
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.webapp.WebAppContext;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
-import org.xml.sax.ErrorHandler;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.xml.sax.SAXParseException;
+
+import com.google.common.base.Charsets;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.io.Resources;
+import com.google.gson.Gson;
 
 /**
  * This is a test case that, given a URL, will validate it as HTML5.<br>
@@ -28,82 +32,101 @@ import org.xml.sax.SAXParseException;
  */
 @RunWith(Parameterized.class)
 public class ValidatorTest {
+
 	private static class Reportable {
 		public static enum Level {
-			ERROR, FATAL, WARNING
+			error, fatal, info, warning
 		}
 
-		private final SAXParseException exception;
 		private final Level level;
+		private final ValidationResponseMessage validationResponseMessage;
 
-		public Reportable(Level level, SAXParseException exception) {
+		public Reportable(Level level, ValidationResponseMessage vrm) {
 			this.level = level;
-			this.exception = exception;
-		}
-
-		public Throwable getException() {
-			return exception;
-		}
-
-		public Level getLevel() {
-			return level;
+			this.validationResponseMessage = vrm;
 		}
 
 		@Override
 		public String toString() {
-			return level.name() + " Line: " + exception.getLineNumber() + " Column: " + exception.getColumnNumber()
-					+ " Message: " + exception.getMessage();
+			return level.name() + " " + validationResponseMessage;
 		}
 	}
 
-	private static List<String> urls = newArrayList("http://www.forsakringskassan.se/privatpers/");
-
-	@Parameters(name = "{index} {0}")
-	public static List<Object[]> before() throws IOException, SAXException {
-		final List<Object[]> reportables = newArrayList();
-		final HtmlParser parser = new HtmlParser(XmlViolationPolicy.ALLOW);
-		parser.setContentHandler(new HtmlSerializer(System.out));
-		urls.forEach(url -> {
-			parser.setErrorHandler(new ErrorHandler() {
+	private static final int PLUSMIN = 5;
+	private static final LoadingCache<String, String> urlContent = newBuilder().maximumSize(100).build(
+			new CacheLoader<String, String>() {
 				@Override
-				public void error(SAXParseException exception) throws SAXException {
-					final Object[] array = { new Reportable(Reportable.Level.ERROR, exception) };
-					reportables.add(array);
-				}
-
-				@Override
-				public void fatalError(SAXParseException exception) throws SAXException {
-					final Object[] array = { new Reportable(Reportable.Level.FATAL, exception) };
-					reportables.add(array);
-				}
-
-				@Override
-				public void warning(SAXParseException exception) throws SAXException {
-					final Object[] array = { new Reportable(Reportable.Level.WARNING, exception) };
-					reportables.add(array);
+				public String load(String key) throws Exception {
+					return Resources.toString(new URL(key), UTF_8);
 				}
 			});
 
-			try {
-				parser.parse(new InputSource(new URL(url).openConnection().getInputStream()));
-			} catch (final Exception e) {
-				propagate(e);
+	private static List<String> urls = newArrayList("http://fk.se/");
+
+	@Parameters(name = "{index} {0}")
+	public static List<Object[]> before() throws Exception {
+		final Server server = startServer();
+		final List<Object[]> reportables = newArrayList();
+		for (final String url : urls) {
+			final ValidationResponse validationReponse = doValidate(url);
+			for (final ValidationResponseMessage vrm : validationReponse.getMessages()) {
+				final se.bjurr.validator.ValidatorTest.Reportable.Level level = Reportable.Level.valueOf(vrm.getType());
+				final Object[] array = { validationReponse, new Reportable(level, vrm) };
+				reportables.add(array);
 			}
-		});
+		}
+		server.stop();
 		return reportables;
 	}
 
-	private final Reportable reportable;
+	private static ValidationResponse doValidate(String url) throws MalformedURLException, IOException {
+		final String apiUrl = "http://localhost:8080/?laxtype=yes&asciiquotes=yes&out=json&doc=" + url;
+		final String apiResponse = Resources.toString(new URL(apiUrl), Charsets.UTF_8);
+		System.out.println(apiUrl);
+		System.out.println(apiResponse);
+		return new Gson().fromJson(apiResponse, ValidationResponse.class);
+	}
 
-	public ValidatorTest(Reportable reportable) {
+	private static Server startServer() throws Exception, InterruptedException {
+		final Server server = new Server(8080);
+		final WebAppContext webapp = new WebAppContext();
+		webapp.setContextPath("/");
+		final URL warResource = ValidatorTest.class.getClassLoader().getResource("vnu.war");
+		webapp.setWar(warResource.getFile());
+		server.setHandler(webapp);
+		server.start();
+		return server;
+	}
+
+	private final Reportable reportable;
+	private final ValidationResponse validationReponse;
+
+	public ValidatorTest(ValidationResponse validationReponse, Reportable reportable) {
+		this.validationReponse = validationReponse;
 		this.reportable = reportable;
 	}
 
-	@Test
-	public void reportFailure() {
-		if (!Reportable.Level.WARNING.equals(reportable.getLevel())) {
-			fail(reportable.getException().getMessage());
+	private String context(String string, Integer at, int plusMin) {
+		if (at == null) {
+			return "";
 		}
-		System.out.println(reportable);
+		final StringBuffer sb = new StringBuffer();
+		final String[] lines = string.split("\n");
+		for (int i = at - plusMin; i < at + plusMin; i++) {
+			if (i >= 0 && i < lines.length) {
+				sb.append(i + 1 + "> " + lines[i]);
+			}
+		}
+		return sb.toString();
+	}
+
+	@Test
+	public void reportFailure() throws ExecutionException {
+		fail(reportable.toString()
+				+ "\n"
+				+ context(
+						urlContent.get(validationReponse.getUrl()),
+						firstNonNull(reportable.validationResponseMessage.getFirstLine(),
+								firstNonNull(reportable.validationResponseMessage.getLastLine(), 0)), PLUSMIN));
 	}
 }

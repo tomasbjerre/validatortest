@@ -4,6 +4,7 @@ import static com.google.common.base.Charsets.UTF_8;
 import static com.google.common.base.Objects.firstNonNull;
 import static com.google.common.cache.CacheBuilder.newBuilder;
 import static com.google.common.collect.Lists.newArrayList;
+import static java.lang.System.getProperty;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
@@ -63,7 +64,7 @@ public class ValidatorTest {
 				}
 			});
 
-	private static List<String> urls = newArrayList("http://fk.se/");
+	private static List<String> urls = newArrayList(getProperty("urls", "http://fk.se/").split(","));
 
 	@Parameters(name = "{index} {0}")
 	public static List<Object[]> before() throws Exception {
@@ -97,7 +98,6 @@ public class ValidatorTest {
 		webapp.setWar(warResource.getFile());
 		server.setHandler(webapp);
 		server.start();
-		// server.join();
 		return server;
 	}
 
@@ -117,7 +117,7 @@ public class ValidatorTest {
 		final String[] lines = string.split("\n");
 		for (int i = at - plusMin; i < at + plusMin; i++) {
 			if (i >= 0 && i < lines.length) {
-				sb.append(i + 1 + "> " + lines[i]);
+				sb.append(i + 1 + "> " + lines[i] + "\n");
 			}
 		}
 		return sb.toString();

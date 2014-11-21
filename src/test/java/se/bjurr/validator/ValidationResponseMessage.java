@@ -6,7 +6,7 @@ public class ValidationResponseMessage {
 	private Integer firstLine;
 	private Integer lastColumn;
 	private Integer lastLine;
-	String message;
+	private String message;
 	private String subType;
 	private String type;
 

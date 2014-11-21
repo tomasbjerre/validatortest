@@ -66,7 +66,7 @@ public class ValidatorTest {
 
 	private static List<String> urls = newArrayList(getProperty("urls", "http://fk.se/").split(","));
 
-	@Parameters(name = "{index} {0}")
+	@Parameters(name = "{index} {0} {1}")
 	public static List<Object[]> before() throws Exception {
 		final Server server = startServer();
 		final List<Object[]> reportables = newArrayList();

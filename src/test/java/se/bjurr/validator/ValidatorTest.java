@@ -53,6 +53,8 @@ public class ValidatorTest {
 	}
 
 	private static final int PLUSMIN = 5;
+
+	private static final int SERVER_PORT = 8080;
 	private static final LoadingCache<String, String> urlContent = newBuilder().maximumSize(100).build(
 			new CacheLoader<String, String>() {
 				@Override
@@ -80,7 +82,7 @@ public class ValidatorTest {
 	}
 
 	private static ValidationResponse doValidate(String url) throws MalformedURLException, IOException {
-		final String apiUrl = "http://localhost:8080/?laxtype=yes&asciiquotes=yes&out=json&doc=" + url;
+		final String apiUrl = "http://localhost:" + SERVER_PORT + "/?laxtype=yes&asciiquotes=yes&out=json&doc=" + url;
 		final String apiResponse = Resources.toString(new URL(apiUrl), Charsets.UTF_8);
 		System.out.println(apiUrl);
 		System.out.println(apiResponse);
@@ -88,13 +90,14 @@ public class ValidatorTest {
 	}
 
 	private static Server startServer() throws Exception, InterruptedException {
-		final Server server = new Server(8080);
+		final Server server = new Server(SERVER_PORT);
 		final WebAppContext webapp = new WebAppContext();
 		webapp.setContextPath("/");
 		final URL warResource = ValidatorTest.class.getClassLoader().getResource("vnu.war");
 		webapp.setWar(warResource.getFile());
 		server.setHandler(webapp);
 		server.start();
+		// server.join();
 		return server;
 	}
 
